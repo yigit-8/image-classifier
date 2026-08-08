@@ -13,6 +13,9 @@ COPY src/ ./src/
 # Model weights are mounted at runtime (training is too heavy for image build)
 RUN mkdir -p data
 
+RUN useradd -m -u 1000 appuser && chown -R appuser /app
+USER appuser
+
 EXPOSE 8000
 
 CMD ["uvicorn", "src.serve:app", "--host", "0.0.0.0", "--port", "8000"]
