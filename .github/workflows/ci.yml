@@ -53,7 +53,7 @@ jobs:
       - name: Push image to GHCR
         if: github.event_name == 'push'
         run: |
-          docker tag image-classifier:${{ github.sha }} ghcr.io/yigit-8/image-classifier:latest
-          docker tag image-classifier:${{ github.sha }} ghcr.io/yigit-8/image-classifier:${{ github.sha }}
-          docker push ghcr.io/yigit-8/image-classifier:latest
-          docker push ghcr.io/yigit-8/image-classifier:${{ github.sha }}
+          docker tag image-classifier:${{ github.sha }} ghcr.io/yigitliman/image-classifier:latest
+          docker tag image-classifier:${{ github.sha }} ghcr.io/yigitliman/image-classifier:${{ github.sha }}
+          docker push ghcr.io/yigitliman/image-classifier:latest
+          docker push ghcr.io/yigitliman/image-classifier:${{ github.sha }}

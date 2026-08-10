@@ -1,6 +1,6 @@
 # Image Classifier
 
-![CI](https://github.com/yigit-8/image-classifier/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/yigitliman/image-classifier/actions/workflows/ci.yml/badge.svg)
 
 CIFAR-10 image classification using a custom CNN built with PyTorch. Trained with data augmentation, batch normalization, and cosine annealing. Experiment tracking with MLflow, served via FastAPI.
 
