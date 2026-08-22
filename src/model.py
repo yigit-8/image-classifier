@@ -14,6 +14,12 @@ Architecture:
 import torch
 from torch import nn
 
+# Preprocessing contract, shared by training and serving so the two transform
+# pipelines cannot drift apart. CIFAR-10 channel statistics, 32x32 inputs.
+IMAGE_SIZE = (32, 32)
+NORM_MEAN = (0.4914, 0.4822, 0.4465)
+NORM_STD = (0.2470, 0.2435, 0.2616)
+
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, dropout: float = 0.25):

@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -28,7 +32,7 @@ jobs:
         run: ruff check src tests
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short --cov=src --cov-report=term-missing
 
   docker-build:
     runs-on: ubuntu-latest
@@ -41,6 +45,31 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t image-classifier:${{ github.sha }} .
+
+      # The image is only worth pushing if it actually boots and serves.
+      # /health needs a checkpoint, so bake a randomly initialised one into a
+      # throwaway layer on top of the built image (it already has torch).
+      - name: Smoke test the image
+        run: |
+          set -eo pipefail
+          docker build -t image-classifier-smoke:${{ github.sha }} - <<'EOF'
+          FROM image-classifier:${{ github.sha }}
+          RUN python -c "import torch; from src.model import ImageClassifier; torch.save(ImageClassifier().state_dict(), 'data/model.pt')"
+          EOF
+          docker run -d --name smoke -p 8000:8000 image-classifier-smoke:${{ github.sha }}
+          deadline=$((SECONDS + 60))
+          until curl -fsS http://localhost:8000/health; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "container did not become healthy within 60s"
+              docker logs smoke
+              docker rm -f smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          echo
+          echo "container is healthy"
+          docker rm -f smoke
 
       - name: Log in to GitHub Container Registry
         if: github.event_name == 'push'

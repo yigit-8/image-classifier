@@ -21,17 +21,23 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from PIL import Image
 from torchvision import transforms
 
-from src.model import ImageClassifier
+from src.model import IMAGE_SIZE, NORM_MEAN, NORM_STD, ImageClassifier
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "model.pt")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-model = None
+# Uploads are read fully into memory, so they need a ceiling.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_BATCH_FILES = 20
 
+model = None
+model_metadata = {}
+
+# Must match the eval-time transform in train.py; the constants are shared.
 TRANSFORM = transforms.Compose([
-    transforms.Resize((32, 32)),
+    transforms.Resize(IMAGE_SIZE),
     transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
+    transforms.Normalize(NORM_MEAN, NORM_STD),
 ])
 
 CLASS_DESCRIPTIONS = {
@@ -49,14 +55,41 @@ CLASS_DESCRIPTIONS = {
 
 
 def load_model():
-    global model
+    global model, model_metadata
     if not os.path.exists(MODEL_PATH):
         raise RuntimeError("Model not found. Run src/train.py first.")
+
+    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)
+
+    # train.py writes a bundle (weights + params + seed + metrics). Older
+    # checkpoints are a bare state_dict, so both are accepted.
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        state_dict = checkpoint["state_dict"]
+        model_metadata = {
+            "params": checkpoint.get("params", {}),
+            "seed": checkpoint.get("seed"),
+            "metrics": checkpoint.get("metrics", {}),
+        }
+    else:
+        state_dict = checkpoint
+        model_metadata = {}
+
     m = ImageClassifier()
-    m.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True))
+    m.load_state_dict(state_dict)
     m.eval()
     model = m
-    print(f"Model loaded on {DEVICE}.")
+    print(f"Model loaded on {DEVICE}. Metadata: {model_metadata or 'none (bare state_dict)'}")
+
+
+def read_upload(file: UploadFile) -> bytes:
+    """Read an upload, refusing anything over the size ceiling."""
+    contents = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB upload limit.",
+        )
+    return contents
 
 
 def classify_image(image_bytes: bytes, top_k: int, min_confidence: float) -> dict:
@@ -127,8 +160,12 @@ def get_class_info(name: str):
     return {"class": name, "description": CLASS_DESCRIPTIONS[name]}
 
 
+# /predict and /predict/batch are plain `def`, not `async def`: Torch inference
+# is synchronous and CPU-bound, so running it in the event loop would block
+# every other request. FastAPI hands sync endpoints to a threadpool instead,
+# which also lets several batch requests make progress at once.
 @app.post("/predict")
-async def predict(
+def predict(
     file: UploadFile = File(...),
     top_k: int = Query(default=3, ge=1, le=10, description="Number of top predictions to return"),
     min_confidence: float = Query(
@@ -138,12 +175,12 @@ async def predict(
     if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
-    contents = await file.read()
+    contents = read_upload(file)
     return classify_image(contents, top_k, min_confidence)
 
 
 @app.post("/predict/batch")
-async def predict_batch(
+def predict_batch(
     files: list[UploadFile] = File(...),
     top_k: int = Query(default=3, ge=1, le=10),
     min_confidence: float = Query(default=0.0, ge=0.0, le=1.0),
@@ -152,10 +189,15 @@ async def predict_batch(
         raise HTTPException(status_code=503, detail="Model not loaded.")
     if not files:
         raise HTTPException(status_code=400, detail="No files provided.")
+    if len(files) > MAX_BATCH_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Batch of {len(files)} exceeds the limit of {MAX_BATCH_FILES} files.",
+        )
 
     results = []
     for file in files:
-        contents = await file.read()
+        contents = read_upload(file)
         result = classify_image(contents, top_k, min_confidence)
         results.append({"filename": file.filename, **result})
 
