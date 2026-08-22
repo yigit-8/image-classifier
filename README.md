@@ -78,16 +78,41 @@ curl -X POST http://localhost:8000/predict \
   -F "file=@your_image.jpg"
 ```
 
+Response shape only. The values below show the JSON structure, they are not a
+measured prediction. See [Results](#results).
+
 ```json
 {
   "prediction": "automobile",
-  "top3": [
+  "confidence": 0.8721,
+  "confident": true,
+  "top_k": [
     {"class": "automobile", "probability": 0.8721},
     {"class": "truck", "probability": 0.0943},
     {"class": "ship", "probability": 0.0211}
   ]
 }
 ```
+
+Uploads are capped at 10 MB (`413` above that) and batches at 20 files
+(`422` above that).
+
+## Results
+
+No trained checkpoint is published yet. `data/model.pt` is gitignored and the
+test suite writes a randomly initialised one so the API can boot, so there is
+no accuracy number here and none is claimed elsewhere in this README.
+
+Training is reproducible. The seed is a CLI argument, logged to MLflow and
+stored inside the checkpoint, and cuDNN runs deterministically by default:
+
+```bash
+python src/train.py --seed 42
+```
+
+Checkpoints are saved as a bundle of weights, hyperparameters, seed and final
+metrics, mirrored to `data/metrics.json`. Numbers go here once the model is
+trained on a GPU.
 
 ## Model Architecture
 
