@@ -63,6 +63,12 @@ docker build -t image-classifier .
 docker run -p 8000:8000 -v $(pwd)/data:/app/data image-classifier
 ```
 
+The image is also published to GHCR on every push to `main`, so you can skip the build:
+
+```bash
+docker run -p 8000:8000 -v $(pwd)/data:/app/data ghcr.io/yigitliman/image-classifier:latest
+```
+
 ## API Endpoints
 
 | Method | Endpoint | Description |
